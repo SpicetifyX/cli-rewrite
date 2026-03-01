@@ -1,0 +1,16 @@
+{
+  "name": "cli-rewrite",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/ini": "^4.1.1"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "ini": "^6.0.0"
+  }
+}
