@@ -1,11 +1,6 @@
-import {
-  modifyFile,
-  replace,
-  replaceOnce,
-  seekToCloseParen,
-} from "./patch-utils";
+import { replace, replaceOnce, seekToCloseParen } from "./patch-utils";
 
-export async function htmlMod(htmlPath: string, config: any) {
+export function htmlMod(content: string, config: any): string {
   const extensions = config.AdditionalOptions.extensions
     ? config.AdditionalOptions.extensions.split("|")
     : [];
@@ -41,125 +36,114 @@ export async function htmlMod(htmlPath: string, config: any) {
     }
   }
 
-  await modifyFile(htmlPath, (content) => {
-    content = replace(
-      content,
-      /<script defer="defer" src="\/xpui-snapshot\.js"><\/script>/,
-      () =>
-        `<script defer="defer" src="/xpui-modules.js"></script><script defer="defer" src="/xpui-snapshot.js"></script>`,
-    );
-    content = replace(
-      content,
-      /<!-- spicetify helpers -->/,
-      (match) => `${match}${helperHTML}`,
-    );
-    content = replace(
-      content,
-      /<\/body>/,
-      (match) => `${extensionsHTML}${match}`,
-    );
-    return content;
-  });
+  content = replace(
+    content,
+    /<script defer="defer" src="\/xpui-snapshot\.js"><\/script>|<script defer src="xpui-snapshot\.js"><\/script>/,
+    () =>
+      `<script defer src="xpui-modules.js"></script><script defer src="xpui-snapshot.js"></script>`,
+  );
+  content = replace(
+    content,
+    /<!-- spicetify helpers -->/,
+    (match) => `${match}${helperHTML}`,
+  );
+  content = replace(
+    content,
+    /<\/body>/,
+    (match) => `${extensionsHTML}${match}`,
+  );
+  return content;
 }
 
-export async function insertCustomApp(jsPath: string, config: any) {
+export function insertCustomApp(content: string, config: any): string {
   const customApps = config.AdditionalOptions.custom_apps
     ? config.AdditionalOptions.custom_apps.split("|")
     : [];
-  if (customApps.length === 0) return;
+  if (customApps.length === 0) return content;
 
-  await modifyFile(jsPath, (content) => {
-    const reactPatterns = [
-      /([\w_\$][\w_\$\d]*(?:\(\))?)\.lazy\(\((?:\(\)=>|function\(\)\{return )(\w+)\.(\w+)\(\d+\)\.then\(\w+\.bind\(\w+,\d+\)\)\}?\)\)/,
-      /([\w_\$][\w_\$\d]*)\.lazy\(async\(\)=>\{(?:[^{}]|\{[^{}]*\})*await\s+(\w+)\.(\w+)\(\d+\)\.then\(\w+\.bind\(\w+,\d+\)\)/,
-      /([\w_\$][\w_\$\d]*(?:\(\))?)\.lazy\(async\(\)=>await\s+Promise\.all\(\[[^\]]+\]\)\.then\((\w+)\.bind\((\w+),\d+\)\)/,
-    ];
+  const reactPatterns = [
+    /([\w_\$][\w_\$\d]*(?:\(\))?)\.lazy\(\((?:\(\)=>|function\(\)\{return )(\w+)\.(\w+)\(\d+\)\.then\(\w+\.bind\(\w+,\d+\)\)\}?\)\)/,
+    /([\w_\$][\w_\$\d]*)\.lazy\(async\(\)=>\{(?:[^{}]|\{[^{}]*\})*await\s+(\w+)\.(\w+)\(\d+\)\.then\(\w+\.bind\(\w+,\d+\)\)/,
+    /([\w_\$][\w_\$\d]*(?:\(\))?)\.lazy\(async\(\)=>await\s+Promise\.all\(\[[^\]]+\]\)\.then\((\w+)\.bind\((\w+),\d+\)\)/,
+  ];
 
-    const elementPatterns = [
-      /(\([\w$\.,]+\))\(([\w\.]+),\{path:"\/settings(?:\/[\w\*]+)?",?(element|children)?/,
-      /([\w_\$][\w_\$\d]*(?:\(\))?\.createElement|\([\w$\.,]+\))\(([\w\.]+),\{path:"\/collection"(?:,(element|children)?[:.\w,{}()$/*"]+)?\}/,
-    ];
+  const elementPatterns = [
+    /(\([\w$\.,]+\))\(([\w\.]+),\{path:"\/settings(?:\/[\w\*]+)?",?(element|children)?/,
+    /([\w_\$][\w_\$\d]*(?:\(\))?\.createElement|\([\w$\.,]+\))\(([\w\.]+),\{path:"\/collection"(?:,(element|children)?[:.\w,{}()$/*"]+)?\}/,
+  ];
 
-    let reactSymbs: string[] | null = null;
-    let matchedReactPattern: RegExp | null = null;
-    for (const p of reactPatterns) {
-      const match = content.match(p);
-      if (match) {
-        reactSymbs = match.slice(1);
-        matchedReactPattern = p;
-        break;
-      }
+  let reactSymbs: string[] | null = null;
+  let matchedReactPattern: RegExp | null = null;
+  for (const p of reactPatterns) {
+    const match = content.match(p);
+    if (match) {
+      reactSymbs = match.slice(1);
+      matchedReactPattern = p;
+      break;
     }
+  }
 
-    let eleSymbs: string[] | null = null;
-    let matchedElementPattern: RegExp | null = null;
-    for (const p of elementPatterns) {
-      const match = content.match(p);
-      if (match) {
-        eleSymbs = match.slice(1);
-        matchedElementPattern = p;
-        break;
-      }
+  let eleSymbs: string[] | null = null;
+  let matchedElementPattern: RegExp | null = null;
+  for (const p of elementPatterns) {
+    const match = content.match(p);
+    if (match) {
+      eleSymbs = match.slice(1);
+      matchedElementPattern = p;
+      break;
     }
+  }
 
-    if (
-      !reactSymbs ||
-      reactSymbs.length < 2 ||
-      !eleSymbs ||
-      eleSymbs.length === 0
-    ) {
-      return content;
-    }
-
-    let appMap = "";
-    let appReactMap = "";
-    let appEleMap = "";
-    let cssEnableMap = "";
-    const appNames = customApps.map((app: string) => `"${app}"`).join(",");
-
-    let wildcard = "";
-    if (!eleSymbs[2]) {
-      eleSymbs[2] = "children";
-    } else if (eleSymbs[2] === "element") {
-      wildcard = "*";
-    }
-
-    customApps.forEach((app: string, index: number) => {
-      const appName = `spicetify-routes-${app}`;
-      appMap += `"${appName}":"${appName}",`;
-      appReactMap += `,spicetifyApp${index}=${reactSymbs![0]}.lazy((()=>${reactSymbs![1]}.${reactSymbs![2]}("${appName}").then(${reactSymbs![1]}.bind(${reactSymbs![1]},"${appName}"))))`;
-      appEleMap += `${eleSymbs![0]}(${eleSymbs![1]},{path:"/${app}/${wildcard}",pathV6:"/${app}/*",${eleSymbs![2]}:${eleSymbs![0]}(spicetifyApp${index},{})}),`;
-      cssEnableMap += `,"${appName}":1`;
-    });
-
-    content = replace(content, /\{(\d+:"xpui)/, (_, p1) => `{${appMap}${p1}`);
-
-    const reactMatch = seekToCloseParen(
-      content,
-      matchedReactPattern!,
-      "(",
-      ")",
-    );
-    if (reactMatch) {
-      content = content.replace(reactMatch, `${reactMatch}${appReactMap}`);
-    }
-
-    content = replaceOnce(
-      content,
-      matchedElementPattern!,
-      (match) => `${appEleMap}${match}`,
-    );
-
-    content = insertNavLink(content, `[${appNames}]`);
-
-    content = replaceOnce(
-      content,
-      /\d+:1,\d+:1,\d+:1/,
-      (match) => `${match}${cssEnableMap}`,
-    );
-
+  if (
+    !reactSymbs ||
+    reactSymbs.length < 2 ||
+    !eleSymbs ||
+    eleSymbs.length === 0
+  ) {
     return content;
+  }
+
+  let appMap = "";
+  let appReactMap = "";
+  let appEleMap = "";
+  let cssEnableMap = "";
+  const appNames = customApps.map((app: string) => `"${app}"`).join(",");
+
+  let wildcard = "";
+  if (!eleSymbs[2]) {
+    eleSymbs[2] = "children";
+  } else if (eleSymbs[2] === "element") {
+    wildcard = "*";
+  }
+
+  customApps.forEach((app: string, index: number) => {
+    const appName = `spicetify-routes-${app}`;
+    appMap += `"${appName}":"${appName}",`;
+    appReactMap += `,spicetifyApp${index}=${reactSymbs![0]}.lazy((()=>${reactSymbs![1]}.${reactSymbs![2]}("${appName}").then(${reactSymbs![1]}.bind(${reactSymbs![1]},"${appName}"))))`;
+    appEleMap += `${eleSymbs![0]}(${eleSymbs![1]},{path:"/${app}/${wildcard}",pathV6:"/${app}/*",${eleSymbs![2]}:${eleSymbs![0]}(spicetifyApp${index},{})}),`;
+    cssEnableMap += `,"${appName}":1`;
   });
+
+  content = replace(content, /\{(\d+:"xpui)/, (_, p1) => `{${appMap}${p1}`);
+
+  const reactMatch = seekToCloseParen(content, matchedReactPattern!, "(", ")");
+  if (reactMatch) {
+    content = content.replace(reactMatch, `${reactMatch}${appReactMap}`);
+  }
+
+  content = replaceOnce(
+    content,
+    matchedElementPattern!,
+    (match) => `${appEleMap}${match}`,
+  );
+  content = insertNavLink(content, `[${appNames}]`);
+  content = replaceOnce(
+    content,
+    /\d+:1,\d+:1,\d+:1/,
+    (match) => `${match}${cssEnableMap}`,
+  );
+
+  return content;
 }
 
 function insertNavLink(str: string, appNameArray: string): string {
@@ -204,55 +188,49 @@ function insertNavLink(str: string, appNameArray: string): string {
   return str;
 }
 
-export async function insertHomeConfig(jsPath: string) {
-  await modifyFile(jsPath, (content) => {
-    content = replaceOnce(
-      content,
-      /(createDesktopHomeFeatureActivationShelfEventFactory.*?)([\w\.]+)(\.map)/,
-      (_, p1, p2, p3) => `${p1}SpicetifyHomeConfig.arrange(${p2})${p3}`,
-    );
+export function insertHomeConfig(content: string): string {
+  content = replaceOnce(
+    content,
+    /(createDesktopHomeFeatureActivationShelfEventFactory.*?)([\w\.]+)(\.map)/,
+    (_, p1, p2, p3) => `${p1}SpicetifyHomeConfig.arrange(${p2})${p3}`,
+  );
 
-    content = replaceOnce(
-      content,
-      /(&&"HomeShortsSectionData".*?[\],}])([a-zA-Z])(\}\)?\()/,
-      (_, p1, p2, p3) => `${p1}SpicetifyHomeConfig.arrange(${p2})${p3}`,
-    );
+  content = replaceOnce(
+    content,
+    /(&&"HomeShortsSectionData".*?[\],}])([a-zA-Z])(\}\)?\()/,
+    (_, p1, p2, p3) => `${p1}SpicetifyHomeConfig.arrange(${p2})${p3}`,
+  );
 
-    return content;
-  });
+  return content;
 }
 
-export async function insertExpFeatures(jsPath: string) {
-  await modifyFile(jsPath, (content) => {
-    content = replaceOnce(
-      content,
-      /(function \w+\((\w+)\)\{)(\w+ \w+=\w\.name;if\("internal")/,
-      (_, p1, p2, p3) => `${p1}${p2}=Spicetify.expFeatureOverride(${p2});${p3}`,
-    );
+export function insertExpFeatures(content: string): string {
+  content = replaceOnce(
+    content,
+    /(function \w+\((\w+)\)\{)(\w+ \w+=\w\.name;if\("internal")/,
+    (_, p1, p2, p3) => `${p1}${p2}=Spicetify.expFeatureOverride(${p2});${p3}`,
+  );
 
-    content = replaceOnce(
-      content,
-      /(([\w$.]+\.fromJSON)\(\w+\)+;)(return ?[\w{}().,]+[\w$]+\.Provider,)(\{value:\{localConfiguration)/,
-      (_, p1, p2, p3, p4) =>
-        `${p1}Spicetify.createInternalMap=${p2};${p3}Spicetify.RemoteConfigResolver=${p4}`,
-    );
+  content = replaceOnce(
+    content,
+    /(([\w$.]+\.fromJSON)\(\w+\)+;)(return ?[\w{}().,]+[\w$]+\.Provider,)(\{value:\{localConfiguration)/,
+    (_, p1, p2, p3, p4) =>
+      `${p1}Spicetify.createInternalMap=${p2};${p3}Spicetify.RemoteConfigResolver=${p4}`,
+  );
 
-    return content;
-  });
+  return content;
 }
 
-export async function insertVersionInfo(jsPath: string) {
-  await modifyFile(jsPath, (content) => {
-    content = replaceOnce(
-      content,
-      /(\w+(?:\(\))?\.createElement|\([\w$\.,]+\))\([\w\."]+,[\w{}():,]+\.containerVersion\}?\),/,
-      (match, p1) => `${match}${p1}("details",{children: [
-        ${p1}("summary",{children: "Spicetify v" + Spicetify.Config.version}),
-        ${p1}("li",{children: "Theme: " + Spicetify.Config.current_theme + (Spicetify.Config.color_scheme && " / ") + Spicetify.Config.color_scheme}),
-        ${p1}("li",{children: "Extensions: " + Spicetify.Config.extensions.join(", ")}),
-        ${p1}("li",{children: "Custom apps: " + Spicetify.Config.custom_apps.join(", ")}),
-        ]}),`,
-    );
-    return content;
-  });
+export function insertVersionInfo(content: string): string {
+  content = replaceOnce(
+    content,
+    /(\w+(?:\(\))?\.createElement|\([\w$\.,]+\))\([\w\."]+,[\w{}():,]+\.containerVersion\}?\),/,
+    (match, p1) => `${match}${p1}("details",{children: [
+      ${p1}("summary",{children: "Spicetify v" + Spicetify.Config.version}),
+      ${p1}("li",{children: "Theme: " + Spicetify.Config.current_theme + (Spicetify.Config.color_scheme && " / ") + Spicetify.Config.color_scheme}),
+      ${p1}("li",{children: "Extensions: " + Spicetify.Config.extensions.join(", ")}),
+      ${p1}("li",{children: "Custom apps: " + Spicetify.Config.custom_apps.join(", ")}),
+      ]}),`,
+  );
+  return content;
 }
