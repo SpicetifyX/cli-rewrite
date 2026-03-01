@@ -5,12 +5,15 @@
   "private": true,
   "devDependencies": {
     "@types/bun": "latest",
+    "@types/decompress": "^4.2.7",
     "@types/ini": "^4.1.1"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
+    "cheerio": "^1.2.0",
+    "decompress": "^4.2.1",
     "ini": "^6.0.0"
   }
 }
