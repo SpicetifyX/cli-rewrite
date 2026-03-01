@@ -1,19 +1,18 @@
 import { replace, replaceOnce, seekToCloseParen } from "./patch-utils";
+import fs from "node:fs/promises";
+import path from "node:path";
 
-export function htmlMod(content: string, config: any): string {
-  const extensions = config.AdditionalOptions.extensions
-    ? config.AdditionalOptions.extensions.split("|")
-    : [];
-  const customApps = config.AdditionalOptions.custom_apps
-    ? config.AdditionalOptions.custom_apps.split("|")
-    : [];
+export function htmlMod(content: string, config: any, customAppManifests: any[]): string {
+  const extensions = config.AdditionalOptions.extensions ? config.AdditionalOptions.extensions.split("|") : [];
+  const customApps = config.AdditionalOptions.custom_apps ? config.AdditionalOptions.custom_apps.split("|") : [];
 
   let extensionsHTML = "\n";
   let helperHTML = "\n";
 
-  extensionsHTML += `<script defer src='extensions/theme.js'></script>\n`;
-  helperHTML += `<script defer src='helper/homeConfig.js'></script>\n`;
-  helperHTML += `<script defer src='helper/expFeatures.js'></script>\n`;
+  extensionsHTML += `<script defer src="/extensions/theme.js"></script>\n`;
+  helperHTML += `<script defer src="/helper/sidebarConfig.js"></script>\n`;
+  helperHTML += `<script defer src="/helper/homeConfig.js"></script>\n`;
+  helperHTML += `<script defer src="/helper/expFeatures.js"></script>\n`;
 
   const extList = extensions.map((ext: string) => `"${ext}"`).join(",");
   const customAppList = customApps.map((app: string) => `"${app}"`).join(",");
@@ -29,36 +28,51 @@ export function htmlMod(content: string, config: any): string {
   </script>\n`;
 
   for (const v of extensions) {
-    if (v.endsWith(".mjs")) {
-      extensionsHTML += `<script defer type='module' src='extensions/${v}'></script>\n`;
+    if (!v) continue;
+    const src = v.endsWith(".mjs") || v.endsWith(".js") ? v : `${v}.js`;
+    if (src.endsWith(".mjs")) {
+      extensionsHTML += `<script defer type="module" src="/extensions/${src}"></script>\n`;
     } else {
-      extensionsHTML += `<script defer src='extensions/${v}'></script>\n`;
+      extensionsHTML += `<script defer src="/extensions/${src}"></script>\n`;
     }
   }
 
+  for (const manifest of customAppManifests) {
+    if (manifest.subfiles_extension) {
+      for (const file of manifest.subfiles_extension) {
+        if (file.endsWith(".mjs")) {
+          extensionsHTML += `<script defer type="module" src="/extensions/${manifest.name}/${file}"></script>\n`;
+        } else {
+          extensionsHTML += `<script defer src="/extensions/${manifest.name}/${file}"></script>\n`;
+        }
+      }
+    }
+  }
+
+  // Official Spicetify injection logic for xpui-modules.js
   content = replace(
     content,
-    /<script defer="defer" src="\/xpui-snapshot\.js"><\/script>|<script defer src="xpui-snapshot\.js"><\/script>/,
-    () =>
-      `<script defer src="xpui-modules.js"></script><script defer src="xpui-snapshot.js"></script>`,
+    /<script defer="defer" src="\/xpui-snapshot\.js"><\/script>/,
+    () => `<script defer="defer" src="/xpui-modules.js"></script><script defer="defer" src="/xpui-snapshot.js"></script>`
   );
+
   content = replace(
     content,
     /<!-- spicetify helpers -->/,
-    (match) => `${match}${helperHTML}`,
+    (match) => `${match}${helperHTML}`
   );
+  
   content = replace(
     content,
     /<\/body>/,
-    (match) => `${extensionsHTML}${match}`,
+    (match) => `${extensionsHTML}${match}`
   );
+  
   return content;
 }
 
 export function insertCustomApp(content: string, config: any): string {
-  const customApps = config.AdditionalOptions.custom_apps
-    ? config.AdditionalOptions.custom_apps.split("|")
-    : [];
+  const customApps = config.AdditionalOptions.custom_apps ? config.AdditionalOptions.custom_apps.split("|") : [];
   if (customApps.length === 0) return content;
 
   const reactPatterns = [
@@ -94,12 +108,7 @@ export function insertCustomApp(content: string, config: any): string {
     }
   }
 
-  if (
-    !reactSymbs ||
-    reactSymbs.length < 2 ||
-    !eleSymbs ||
-    eleSymbs.length === 0
-  ) {
+  if (!reactSymbs || reactSymbs.length < 2 || !eleSymbs || eleSymbs.length === 0) {
     return content;
   }
 
@@ -107,7 +116,7 @@ export function insertCustomApp(content: string, config: any): string {
   let appReactMap = "";
   let appEleMap = "";
   let cssEnableMap = "";
-  const appNames = customApps.map((app: string) => `"${app}"`).join(",");
+  const appNames = customApps.map(app => `"${app}"`).join(",");
 
   let wildcard = "";
   if (!eleSymbs[2]) {
@@ -116,7 +125,7 @@ export function insertCustomApp(content: string, config: any): string {
     wildcard = "*";
   }
 
-  customApps.forEach((app: string, index: number) => {
+  customApps.forEach((app, index) => {
     const appName = `spicetify-routes-${app}`;
     appMap += `"${appName}":"${appName}",`;
     appReactMap += `,spicetifyApp${index}=${reactSymbs![0]}.lazy((()=>${reactSymbs![1]}.${reactSymbs![2]}("${appName}").then(${reactSymbs![1]}.bind(${reactSymbs![1]},"${appName}"))))`;
@@ -124,40 +133,24 @@ export function insertCustomApp(content: string, config: any): string {
     cssEnableMap += `,"${appName}":1`;
   });
 
-  content = replace(content, /\{(\d+:"xpui)/, (_, p1) => `{${appMap}${p1}`);
+  content = replace(content, /\{(\d+:"xpui)/, (match, p1) => `{${appMap}${p1}`);
 
   const reactMatch = seekToCloseParen(content, matchedReactPattern!, "(", ")");
   if (reactMatch) {
     content = content.replace(reactMatch, `${reactMatch}${appReactMap}`);
   }
 
-  content = replaceOnce(
-    content,
-    matchedElementPattern!,
-    (match) => `${appEleMap}${match}`,
-  );
+  content = replaceOnce(content, matchedElementPattern!, (match) => `${appEleMap}${match}`);
   content = insertNavLink(content, `[${appNames}]`);
-  content = replaceOnce(
-    content,
-    /\d+:1,\d+:1,\d+:1/,
-    (match) => `${match}${cssEnableMap}`,
-  );
+  content = replaceOnce(content, /\d+:1,\d+:1,\d+:1/, (match) => `${match}${cssEnableMap}`);
 
   return content;
 }
 
 function insertNavLink(str: string, appNameArray: string): string {
-  const libraryXItemMatch = seekToCloseParen(
-    str,
-    /\("li",\{[^\{]*\{[^\{]*\{to:"\/search/,
-    "(",
-    ")",
-  );
+  const libraryXItemMatch = seekToCloseParen(str, /\("li",\{[^\{]*\{[^\{]*\{to:"\/search/, "(", ")");
   if (libraryXItemMatch) {
-    str = str.replace(
-      libraryXItemMatch,
-      `${libraryXItemMatch},Spicetify._renderNavLinks(${appNameArray}, false)`,
-    );
+    str = str.replace(libraryXItemMatch, `${libraryXItemMatch},Spicetify._renderNavLinks(${appNameArray}, false)`);
   }
 
   const patterns = [
@@ -168,18 +161,12 @@ function insertNavLink(str: string, appNameArray: string): string {
 
   for (let i = 0; i < patterns.length; i++) {
     const re = patterns[i];
-    const match = str.match(re!);
+    const match = str.match(re);
     if (match) {
       if (i === 0 || i === 1) {
-        str = str.replace(
-          re!,
-          `${match[1]},Spicetify._renderNavLinks(${appNameArray}, true)]`,
-        );
+        str = str.replace(re, `${match[1]},Spicetify._renderNavLinks(${appNameArray}, true)]`);
       } else if (i === 2) {
-        str = str.replace(
-          re!,
-          `${match[1]}[${match[2]}${match[3]},Spicetify._renderNavLinks(${appNameArray}, true)].flat()`,
-        );
+        str = str.replace(re, `${match[1]}[${match[2]}${match[3]},Spicetify._renderNavLinks(${appNameArray}, true)].flat()`);
       }
       break;
     }
@@ -189,48 +176,40 @@ function insertNavLink(str: string, appNameArray: string): string {
 }
 
 export function insertHomeConfig(content: string): string {
-  content = replaceOnce(
-    content,
-    /(createDesktopHomeFeatureActivationShelfEventFactory.*?)([\w\.]+)(\.map)/,
-    (_, p1, p2, p3) => `${p1}SpicetifyHomeConfig.arrange(${p2})${p3}`,
-  );
-
-  content = replaceOnce(
-    content,
-    /(&&"HomeShortsSectionData".*?[\],}])([a-zA-Z])(\}\)?\()/,
-    (_, p1, p2, p3) => `${p1}SpicetifyHomeConfig.arrange(${p2})${p3}`,
-  );
-
+  content = replaceOnce(content, /(createDesktopHomeFeatureActivationShelfEventFactory.*?)([\w\.]+)(\.map)/, 
+    (match, p1, p2, p3) => `${p1}SpicetifyHomeConfig.arrange(${p2})${p3}`);
+  
+  content = replaceOnce(content, /(&&"HomeShortsSectionData".*?[\],}])([a-zA-Z])(\}\)?\()/,
+    (match, p1, p2, p3) => `${p1}SpicetifyHomeConfig.arrange(${p2})${p3}`);
+  
   return content;
 }
 
+export function insertSidebarConfig(content: string): string {
+  return replaceOnce(
+    content,
+    /return null!=\w+&&\w+\.totalLength(\?\w+\(\)\.createElement\(\w+,\{contextUri:)(\w+)\.uri/,
+    (match, p1, p2) => `return true${p1}${p2}?.uri||""`
+  );
+}
+
 export function insertExpFeatures(content: string): string {
-  content = replaceOnce(
-    content,
-    /(function \w+\((\w+)\)\{)(\w+ \w+=\w\.name;if\("internal")/,
-    (_, p1, p2, p3) => `${p1}${p2}=Spicetify.expFeatureOverride(${p2});${p3}`,
-  );
+  content = replaceOnce(content, /(function \w+\((\w+)\)\{)(\w+ \w+=\w\.name;if\("internal")/,
+    (match, p1, p2, p3) => `${p1}${p2}=Spicetify.expFeatureOverride(${p2});${p3}`);
 
-  content = replaceOnce(
-    content,
-    /(([\w$.]+\.fromJSON)\(\w+\)+;)(return ?[\w{}().,]+[\w$]+\.Provider,)(\{value:\{localConfiguration)/,
-    (_, p1, p2, p3, p4) =>
-      `${p1}Spicetify.createInternalMap=${p2};${p3}Spicetify.RemoteConfigResolver=${p4}`,
-  );
-
+  content = replaceOnce(content, /(([\w$.]+\.fromJSON)\(\w+\)+;)(return ?[\w{}().,]+[\w$]+\.Provider,)(\{value:\{localConfiguration)/,
+    (match, p1, p2, p3, p4) => `${p1}Spicetify.createInternalMap=${p2};${p3}Spicetify.RemoteConfigResolver=${p4}`);
+  
   return content;
 }
 
 export function insertVersionInfo(content: string): string {
-  content = replaceOnce(
-    content,
-    /(\w+(?:\(\))?\.createElement|\([\w$\.,]+\))\([\w\."]+,[\w{}():,]+\.containerVersion\}?\),/,
+  content = replaceOnce(content, /(\w+(?:\(\))?\.createElement|\([\w$\.,]+\))\([\w\."]+,[\w{}():,]+\.containerVersion\}?\),/,
     (match, p1) => `${match}${p1}("details",{children: [
       ${p1}("summary",{children: "Spicetify v" + Spicetify.Config.version}),
       ${p1}("li",{children: "Theme: " + Spicetify.Config.current_theme + (Spicetify.Config.color_scheme && " / ") + Spicetify.Config.color_scheme}),
       ${p1}("li",{children: "Extensions: " + Spicetify.Config.extensions.join(", ")}),
       ${p1}("li",{children: "Custom apps: " + Spicetify.Config.custom_apps.join(", ")}),
-      ]}),`,
-  );
+      ]}),`);
   return content;
 }
