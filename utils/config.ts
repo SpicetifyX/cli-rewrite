@@ -1,5 +1,5 @@
-import { writeFile, readFile } from "node:fs/promises";
-import { stringify, parse } from "ini";
+import { readFile } from "node:fs/promises";
+import { parse } from "ini";
 
 type Config = {
   Setting: {
