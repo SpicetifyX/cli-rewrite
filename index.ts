@@ -3,7 +3,7 @@ import { readConfig } from "./utils/config";
 import path from "path";
 import { stringify } from "ini";
 import { spawn } from "child_process";
-import { copyFile, exists, mkdir, readdir, rm, writeFile } from "fs/promises";
+import { copyFile, exists, readdir, rm, writeFile } from "fs/promises";
 import { applyPatches } from "./utils/patcher";
 
 (async () => {
