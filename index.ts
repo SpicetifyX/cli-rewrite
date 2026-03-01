@@ -3,7 +3,8 @@ import { readConfig } from "./utils/config";
 import path from "path";
 import { stringify } from "ini";
 import { spawn } from "child_process";
-import { copyFile, readdir, writeFile } from "fs/promises";
+import { copyFile, exists, mkdir, readdir, rm, writeFile } from "fs/promises";
+import { applyPatches } from "./utils/patcher";
 
 (async () => {
   const { positionals } = parseArgs({
@@ -133,6 +134,23 @@ import { copyFile, readdir, writeFile } from "fs/promises";
         process.exit(0);
       } else {
         console.log("Backing up files");
+
+        await Promise.all([
+          await copyFile(
+            path.join(process.env.APPDATA!, "Spotify", "Apps", "login.spa"),
+            path.join(process.env.APPDATA!, "Spicetify", "Backup", "login.spa"),
+          ),
+          await copyFile(
+            path.join(process.env.APPDATA!, "Spotify", "Apps", "xpui.spa"),
+            path.join(process.env.APPDATA!, "Spicetify", "Backup", "xpui.spa"),
+          ),
+        ]);
+
+        console.log("Backup created");
+      }
+
+      if (positionals[3] === "apply") {
+        await applyPatches();
       }
 
       return;
@@ -140,6 +158,34 @@ import { copyFile, readdir, writeFile } from "fs/promises";
     case "restore":
       if (positionals[3] === "backup") {
         console.log("Restoring backup");
+
+        const xpuiDirPath = path.join(
+          process.env.APPDATA!,
+          "Spotify",
+          "Apps",
+          "xpui",
+        );
+        const loginDirPath = path.join(
+          process.env.APPDATA!,
+          "Spotify",
+          "Apps",
+          "login",
+        );
+
+        if ((await exists(xpuiDirPath)) || (await exists(loginDirPath))) {
+          await rm(xpuiDirPath, {
+            recursive: true,
+            force: true,
+          });
+
+          await rm(loginDirPath, {
+            recursive: true,
+            force: true,
+          });
+
+          console.log("Cleared old patched apps");
+        }
+
         await Promise.all([
           await copyFile(
             path.join(process.env.APPDATA!, "Spicetify", "Backup", "login.spa"),
@@ -154,6 +200,13 @@ import { copyFile, readdir, writeFile } from "fs/promises";
         console.log("Spotify is now restored");
       }
 
+      if (positionals[4] === "apply") {
+        await applyPatches();
+      }
+
       return;
+
+    case "apply":
+      await applyPatches();
   }
 })();
