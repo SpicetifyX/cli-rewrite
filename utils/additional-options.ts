@@ -7,55 +7,40 @@ import {
   insertHomeConfig,
   insertVersionInfo,
 } from "./mods";
+import { PatchManager } from "./patch-utils";
 
-export async function additionalOptions(appsFolderPath: string, config: any) {
+export async function registerAdditionalPatches(
+  patchManager: PatchManager,
+  appsFolderPath: string,
+  config: any,
+) {
   const xpuiPath = path.join(appsFolderPath, "xpui");
 
-  const filesToModify = [
-    {
-      path: path.join(xpuiPath, "index.html"),
-      modifiers: [async (p: string) => await htmlMod(p, config)],
-    },
-    {
-      path: path.join(xpuiPath, "xpui.js"),
-      modifiers: [
-        async (p: string) => await insertExpFeatures(p),
-        async (p: string) => await insertHomeConfig(p),
-        async (p: string) => await insertCustomApp(p, config),
-      ],
-    },
-    {
-      path: path.join(xpuiPath, "xpui-modules.js"),
-      modifiers: [
-        async (p: string) => await insertExpFeatures(p),
-        async (p: string) => await insertHomeConfig(p),
-      ],
-    },
-    {
-      path: path.join(xpuiPath, "xpui-snapshot.js"),
-      modifiers: [async (p: string) => await insertCustomApp(p, config)],
-    },
-    {
-      path: path.join(xpuiPath, "home-v2.js"),
-      modifiers: [async (p: string) => await insertHomeConfig(p)],
-    },
-    {
-      path: path.join(xpuiPath, "xpui-desktop-modals.js"),
-      modifiers: [async (p: string) => await insertVersionInfo(p)],
-    },
-  ];
+  patchManager.addPatch(path.join(xpuiPath, "index.html"), (c) =>
+    htmlMod(c, config),
+  );
 
-  await Promise.all(
-    filesToModify.map(async (item) => {
-      try {
-        await fs.access(item.path);
-        for (const mod of item.modifiers) {
-          await mod(item.path);
-        }
-      } catch (e) {
-        console.log(e);
-      }
-    }),
+  patchManager.addPatch(path.join(xpuiPath, "xpui.js"), (c) => {
+    c = insertExpFeatures(c);
+    c = insertHomeConfig(c);
+    c = insertCustomApp(c, config);
+    return c;
+  });
+
+  patchManager.addPatch(path.join(xpuiPath, "xpui-modules.js"), (c) => {
+    c = insertExpFeatures(c);
+    c = insertHomeConfig(c);
+    return c;
+  });
+
+  patchManager.addPatch(path.join(xpuiPath, "xpui-snapshot.js"), (c) =>
+    insertCustomApp(c, config),
+  );
+  patchManager.addPatch(path.join(xpuiPath, "home-v2.js"), (c) =>
+    insertHomeConfig(c),
+  );
+  patchManager.addPatch(path.join(xpuiPath, "xpui-desktop-modals.js"), (c) =>
+    insertVersionInfo(c),
   );
 
   const helperPath = path.join(xpuiPath, "helper");
