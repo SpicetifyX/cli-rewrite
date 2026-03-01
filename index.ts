@@ -32,6 +32,17 @@ import { applyPatches } from "./utils/patcher";
 
         const args = positionals.slice(3);
 
+        if (args.length === 1) {
+          const key = args[0];
+          if (key === "extensions" || key === "custom_apps") {
+            console.log(key, config.AdditionalOptions[key]);
+          } else {
+            // @ts-expect-error False positive
+            console.log(key, config.Setting[key]);
+          }
+          return;
+        }
+
         const parsed = new Map<string, string>();
 
         for (let i = 0; i < args.length; i += 2) {
@@ -39,9 +50,13 @@ import { applyPatches } from "./utils/patcher";
           const value: string = args[i + 1]!;
 
           if (value === undefined) {
-            // @ts-expect-error False positive
-            console.log(key, config.Setting[key]);
-            process.exit(1);
+            if (key === "extensions" || key === "custom_apps") {
+              console.log(key, config.AdditionalOptions[key]);
+            } else {
+              // @ts-expect-error False positive
+              console.log(key, config.Setting[key]);
+            }
+            process.exit(0);
           }
 
           parsed.set(key, value);
