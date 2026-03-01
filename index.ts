@@ -3,7 +3,7 @@ import { readConfig } from "./utils/config";
 import path from "path";
 import { stringify } from "ini";
 import { spawn } from "child_process";
-import { writeFile } from "fs/promises";
+import { copyFile, readdir, writeFile } from "fs/promises";
 
 (async () => {
   const { positionals } = parseArgs({
@@ -119,6 +119,40 @@ import { writeFile } from "fs/promises";
 
     case "config-dir":
       spawn("explorer.exe", [path.join(process.env.APPDATA!, "Spicetify")]);
+
+      return;
+
+    case "backup":
+      const entries = await readdir(
+        path.join(process.env.APPDATA!, "Spicetify", "Backup"),
+      );
+      if (entries.includes("login.spa") || entries.includes("xpui.spa")) {
+        console.log(
+          'Backup is available run "restore backup" to restore backup or "restore backup apply" to restore backup and apply patches',
+        );
+        process.exit(0);
+      } else {
+        console.log("Backing up files");
+      }
+
+      return;
+
+    case "restore":
+      if (positionals[3] === "backup") {
+        console.log("Restoring backup");
+        await Promise.all([
+          await copyFile(
+            path.join(process.env.APPDATA!, "Spicetify", "Backup", "login.spa"),
+            path.join(process.env.APPDATA!, "Spotify", "Apps", "login.spa"),
+          ),
+          await copyFile(
+            path.join(process.env.APPDATA!, "Spicetify", "Backup", "xpui.spa"),
+            path.join(process.env.APPDATA!, "Spotify", "Apps", "xpui.spa"),
+          ),
+        ]);
+
+        console.log("Spotify is now restored");
+      }
 
       return;
   }
