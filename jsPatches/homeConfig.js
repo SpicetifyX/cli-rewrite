@@ -1,13 +1,10 @@
 SpicetifyHomeConfig = {};
 
 (async () => {
-	// Status enum
 	const NORMAL = 0;
 	const STICKY = 1;
 	const LOWERED = 2;
-	// List of sections' metadata
 	let list;
-	// Store sections' statuses
 	const statusDic = {};
 	let mounted = false;
 
@@ -16,12 +13,18 @@ SpicetifyHomeConfig = {};
 		if (list) {
 			return list;
 		}
-		const stickList = (localStorage.getItem("spicetify-home-config:stick") || "").split(",");
-		const lowList = (localStorage.getItem("spicetify-home-config:low") || "").split(",");
+		const stickList = (
+			localStorage.getItem("spicetify-home-config:stick") || ""
+		).split(",");
+		const lowList = (
+			localStorage.getItem("spicetify-home-config:low") || ""
+		).split(",");
 		const stickSections = [];
 		const lowSections = [];
 		for (const uri of stickList) {
-			const index = sections.findIndex((a) => a?.uri === uri || a?.item?.uri === uri);
+			const index = sections.findIndex(
+				(a) => a?.uri === uri || a?.item?.uri === uri,
+			);
 			if (index !== -1) {
 				const item = sections[index];
 				const uri = item.item.uri || item.uri;
@@ -31,7 +34,9 @@ SpicetifyHomeConfig = {};
 			}
 		}
 		for (const uri of lowList) {
-			const index = sections.findIndex((a) => a?.uri === uri || a?.item?.uri === uri);
+			const index = sections.findIndex(
+				(a) => a?.uri === uri || a?.item?.uri === uri,
+			);
 			if (index !== -1) {
 				const item = sections[index];
 				const uri = item.item.uri || item.uri;
@@ -107,11 +112,11 @@ SpicetifyHomeConfig = {};
 
 			localStorage.setItem(
 				"spicetify-home-config:stick",
-				stick.map((a) => a.dataset.uri)
+				stick.map((a) => a.dataset.uri),
 			);
 			localStorage.setItem(
 				"spicetify-home-config:low",
-				low.map((a) => a.dataset.uri)
+				low.map((a) => a.dataset.uri),
 			);
 
 			elem = [...stick, ...normal, ...low];
@@ -141,14 +146,22 @@ SpicetifyHomeConfig = {};
 				const status = statusDic[el.dataset.uri];
 				const index = elem.findIndex((a) => a === el);
 
-				if (!status || index === 0 || status !== statusDic[elem[index - 1]?.dataset.uri]) {
+				if (
+					!status ||
+					index === 0 ||
+					status !== statusDic[elem[index - 1]?.dataset.uri]
+				) {
 					up.disabled = true;
 				} else {
 					up.disabled = false;
 					up.onclick = () => onSwap(el, -1);
 				}
 
-				if (!status || index === elem.length - 1 || status !== statusDic[elem[index + 1]?.dataset.uri]) {
+				if (
+					!status ||
+					index === elem.length - 1 ||
+					status !== statusDic[elem[index + 1]?.dataset.uri]
+				) {
 					down.disabled = true;
 				} else {
 					down.disabled = false;
@@ -185,7 +198,7 @@ SpicetifyHomeConfig = {};
 				removeInteraction();
 			}
 		},
-		Spicetify.SVGIcons["grid-view"]
+		Spicetify.SVGIcons["grid-view"],
 	);
 
 	SpicetifyHomeConfig.addToMenu = () => {
