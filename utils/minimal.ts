@@ -1,6 +1,5 @@
 import { replace, replaceOnce, seekToCloseParen } from "./patch-utils";
 
-// Pre-compiled regexes for performance
 const RE_CONTEXT_MENU = /(?:value:"contextmenu"|"[^"]*":"context-menu")/;
 const RE_USE_REF = /([a-zA-Z_\$][\w\$]*)\.useRef/g;
 const RE_CANDIDATES = /\(\{[^}]*menu:([a-zA-Z_\$][\w\$]*),[^}]*trigger:([a-zA-Z_\$][\w\$]*),[^}]*triggerRef:([a-zA-Z_\$][\w\$]*)/;
@@ -12,7 +11,7 @@ function exposeAPIs_main(input: string): string {
   if (match && match.index !== undefined) {
     const croppedInput = input.slice(0, match.index);
     const reactMatch = croppedInput.match(RE_USE_REF);
-    const react = reactMatch ? reactMatch[reactMatch.length - 1].split('.')[0] : null;
+    const react = reactMatch ? reactMatch[reactMatch.length - 1]!.split('.')[0] : null;
 
     if (react) {
       const cMatch = croppedInput.match(RE_CANDIDATES);
@@ -114,11 +113,11 @@ function colorVariableReplace(content: string): string {
     { name: "CSS: --spice-misc", regex: /#7f7f7f\b/g, repl: () => "var(--spice-misc)" },
     { name: "CSS: --spice-notification", regex: /#(4687d6|2e77d0)\b/g, repl: () => "var(--spice-notification)" },
     { name: "CSS: --spice-notification-error", regex: /#(e22134|cd1a2b)\b/g, repl: () => "var(--spice-notification-error)" },
-    { name: "CSS (rgba): --spice-main", regex: /rgba\(18,18,18,([\d\.]+)\)/g, repl: (m, p1) => `rgba(var(--spice-main),${p1})` },
-    { name: "CSS (rgba): --spice-card", regex: /rgba\(40,40,40,([\d\.]+)\)/g, repl: (m, p1) => `rgba(var(--spice-card),${p1})` },
-    { name: "CSS (rgba): --spice-rgb-shadow", regex: /rgba\(0,0,0,([\d\.]+)\)/g, repl: (m, p1) => `rgba(var(--spice-rgb-shadow),${p1})` },
+    { name: "CSS (rgba): --spice-main", regex: /rgba\(18,18,18,([\d\.]+)\)/g, repl: (_: unknown, p1: string) => `rgba(var(--spice-main),${p1})` },
+    { name: "CSS (rgba): --spice-card", regex: /rgba\(40,40,40,([\d\.]+)\)/g, repl: (_: unknown, p1: string) => `rgba(var(--spice-card),${p1})` },
+    { name: "CSS (rgba): --spice-rgb-shadow", regex: /rgba\(0,0,0,([\d\.]+)\)/g, repl: (_: unknown, p1: string) => `rgba(var(--spice-rgb-shadow),${p1})` },
     { name: "CSS (hsla): --spice-rgb-text", regex: /hsla\(0,0%,100%,\.9\)/g, repl: () => "rgba(var(--spice-rgb-text),.9)" },
-    { name: "CSS (hsla): --spice-rgb-selected-row", regex: /hsla\(0,0%,100%,([\d\.]+)\)/g, repl: (m, p1) => `rgba(var(--spice-rgb-selected-row),${p1})` },
+    { name: "CSS (hsla): --spice-rgb-selected-row", regex: /hsla\(0,0%,100%,([\d\.]+)\)/g, repl: (_: unknown, p1: string) => `rgba(var(--spice-rgb-selected-row),${p1})` },
   ];
 
   for (const patch of colorPatches) {
@@ -160,7 +159,6 @@ export function getMinimalModifiers() {
       return content;
     },
     css: (content: string, fileName: string) => {
-      // temp so text won't be black ._.
       if (fileName.startsWith("pip-mini-player")) {
         return content;
       }
