@@ -1,6 +1,4 @@
 import { replace, replaceOnce, seekToCloseParen } from "./patch-utils";
-import fs from "node:fs/promises";
-import path from "node:path";
 
 export function htmlMod(content: string, config: any, customAppManifests: any[]): string {
   const extensions = config.AdditionalOptions.extensions ? config.AdditionalOptions.extensions.split("|") : [];
@@ -124,7 +122,7 @@ export function insertCustomApp(content: string, config: any): string {
     wildcard = "*";
   }
 
-  customApps.forEach((app, index) => {
+  customApps.forEach((app: string, index: number) => {
     if (!app) return;
     const appName = `spicetify-routes-${app}`;
     appMap += `"${appName}":"${appName}",`;
@@ -135,7 +133,6 @@ export function insertCustomApp(content: string, config: any): string {
     cssEnableMap += `,"${appName}":1`;
   });
 
-  // Remove trailing comma from appNameArray
   if (appNameArray.endsWith(",")) appNameArray = appNameArray.slice(0, -1);
 
   content = replace(content, /\{(\d+:"xpui)/, (match, p1) => `{${appMap}${p1}`);
@@ -154,7 +151,7 @@ export function insertCustomApp(content: string, config: any): string {
 
 function replaceOnceWithPriority(str: string, patterns: (string|RegExp)[], repl: (index: number, ...submatches: string[]) => string): string {
   for (let i = 0; i < patterns.length; i++) {
-    const re = typeof patterns[i] === "string" ? new RegExp(patterns[i]) : patterns[i] as RegExp;
+    const re = typeof patterns[i] === "string" ? new RegExp(patterns[i]!) : patterns[i] as RegExp;
     const match = str.match(re);
     if (match) {
       const res = repl(i, ...match);
@@ -184,16 +181,17 @@ function insertNavLink(str: string, appNameArray: string): string {
       case 2:
         return `${submatches[1]}[${submatches[2]}${submatches[3]},Spicetify._renderNavLinks([${appNameArray}], true)].flat()`;
     }
-    return submatches[0];
+
+    return submatches[0]!;
   });
 }
 
 export function insertHomeConfig(content: string): string {
   content = replaceOnce(content, /(createDesktopHomeFeatureActivationShelfEventFactory.*?)([\w\.]+)(\.map)/, 
-    (match, p1, p2, p3) => `${p1}SpicetifyHomeConfig.arrange(${p2})${p3}`);
+    (_, p1, p2, p3) => `${p1}SpicetifyHomeConfig.arrange(${p2})${p3}`);
   
   content = replaceOnce(content, /(&&"HomeShortsSectionData".*?[\],}])([a-zA-Z])(\}\)?\()/,
-    (match, p1, p2, p3) => `${p1}SpicetifyHomeConfig.arrange(${p2})${p3}`);
+    (_, p1, p2, p3) => `${p1}SpicetifyHomeConfig.arrange(${p2})${p3}`);
   
   return content;
 }
@@ -202,16 +200,16 @@ export function insertSidebarConfig(content: string): string {
   return replaceOnce(
     content,
     /return null!=\w+&&\w+\.totalLength(\?\w+\(\)\.createElement\(\w+,\{contextUri:)(\w+)\.uri/,
-    (match, p1, p2) => `return true${p1}${p2}?.uri||""`
+    (_, p1, p2) => `return true${p1}${p2}?.uri||""`
   );
 }
 
 export function insertExpFeatures(content: string): string {
   content = replaceOnce(content, /(function \w+\((\w+)\)\{)(\w+ \w+=\w\.name;if\("internal")/,
-    (match, p1, p2, p3) => `${p1}${p2}=Spicetify.expFeatureOverride(${p2});${p3}`);
+    (_, p1, p2, p3) => `${p1}${p2}=Spicetify.expFeatureOverride(${p2});${p3}`);
 
   content = replaceOnce(content, /(([\w$.]+\.fromJSON)\(\w+\)+;)(return ?[\w{}().,]+[\w$]+\.Provider,)(\{value:\{localConfiguration)/,
-    (match, p1, p2, p3, p4) => `${p1}Spicetify.createInternalMap=${p2};${p3}Spicetify.RemoteConfigResolver=${p4}`);
+    (_, p1, p2, p3, p4) => `${p1}Spicetify.createInternalMap=${p2};${p3}Spicetify.RemoteConfigResolver=${p4}`);
   
   return content;
 }
