@@ -3,7 +3,7 @@ import { readConfig } from "./utils/config";
 import path from "path";
 import { stringify } from "ini";
 import { spawn } from "child_process";
-import { copyFile, exists, readdir, rm, writeFile } from "fs/promises";
+import { copyFile, exists, readdir, rm, stat, writeFile } from "fs/promises";
 import { applyPatches } from "./utils/patcher";
 
 (async () => {
@@ -222,6 +222,24 @@ import { applyPatches } from "./utils/patcher";
       return;
 
     case "apply":
+      try {
+        await stat(path.join(process.env.APPDATA!, "Spotify", "Apps", "xpui"));
+        await rm(path.join(process.env.APPDATA!, "Spotify", "Apps", "xpui"));
+      } catch {
+        // Continue
+      }
+
+      await Promise.all([
+        await copyFile(
+          path.join(process.env.APPDATA!, "Spicetify", "Backup", "login.spa"),
+          path.join(process.env.APPDATA!, "Spotify", "Apps", "login.spa"),
+        ),
+        await copyFile(
+          path.join(process.env.APPDATA!, "Spicetify", "Backup", "xpui.spa"),
+          path.join(process.env.APPDATA!, "Spotify", "Apps", "xpui.spa"),
+        ),
+      ]);
+
       await applyPatches();
   }
 })();
