@@ -18,13 +18,20 @@ export class PatchManager {
     const uniqueFiles = new Set([...allFiles, ...this.patches.keys()]);
     const concurrencyLimit = require("node:os").cpus().length * 2;
     const queue = Array.from(uniqueFiles);
-
+    
     const worker = async () => {
       while (queue.length > 0) {
         const filePath = queue.shift();
         if (!filePath) break;
 
         try {
+          // Check existence first to avoid noisy ENOENT in logs
+          try {
+            await fs.access(filePath);
+          } catch {
+            continue;
+          }
+
           const raw = await fs.readFile(filePath, "utf8");
           let content = raw;
 
@@ -43,7 +50,7 @@ export class PatchManager {
             await fs.writeFile(filePath, content, { mode: 0o700 });
           }
         } catch (e) {
-          console.log(e);
+          // console.error(`Error patching ${filePath}:`, e.message);
         }
       }
     };
@@ -52,41 +59,23 @@ export class PatchManager {
   }
 }
 
-export async function modifyFile(
-  filePath: string,
-  repl: (content: string) => string | Promise<string>,
-) {
-  try {
-    const raw = await fs.readFile(filePath, "utf8");
-    const content = await repl(raw);
-    if (content !== raw) {
-      await fs.writeFile(filePath, content, { mode: 0o700 });
-    }
-  } catch (err) {
-    console.error(`Error modifying file ${filePath}:`, err);
-  }
-}
-
 export function replace(
   content: string,
   pattern: string | RegExp,
-  repl: (...submatches: string[]) => string,
+  repl: (...submatches: string[]) => string
 ): string {
   let re: RegExp;
   if (typeof pattern === "string") {
     re = new RegExp(pattern, "g");
   } else {
-    // If it's a RegExp without the global flag, create a new one with it
     if (!pattern.global) {
       re = new RegExp(pattern.source, pattern.flags + "g");
     } else {
       re = pattern;
     }
   }
-
+  
   return content.replace(re, (match, ...args) => {
-    // The last two arguments are offset and string.
-    // All arguments before that are the capture groups.
     const submatches = [match, ...args.slice(0, -2)];
     return repl(...submatches);
   });
@@ -95,21 +84,22 @@ export function replace(
 export function replaceOnce(
   content: string,
   pattern: string | RegExp,
-  repl: (...submatches: string[]) => string,
+  repl: (...submatches: string[]) => string
 ): string {
   if (typeof pattern === "string") {
-    const index = content.indexOf(pattern);
-    if (index === -1) return content;
-    // Simple string replacement if possible
-    const match = [pattern]; // incomplete submatches but often enough
-    return (
-      content.slice(0, index) +
-      repl(pattern) +
-      content.slice(index + pattern.length)
-    );
+    const re = new RegExp(pattern);
+    return content.replace(re, (match, ...args) => {
+      const submatches = [match, ...args.slice(0, -2)];
+      return repl(...submatches);
+    });
   } else {
+    // If it has global flag, remove it for replaceOnce
+    let re = pattern;
+    if (pattern.global) {
+      re = new RegExp(pattern.source, pattern.flags.replace("g", ""));
+    }
     let firstMatch = true;
-    return content.replace(pattern, (match, ...args) => {
+    return content.replace(re, (match, ...args) => {
       if (firstMatch) {
         firstMatch = false;
         const submatches = [match, ...args.slice(0, -2)];
@@ -124,7 +114,7 @@ export function seekToCloseParen(
   content: string,
   pattern: string | RegExp,
   leftChar: string,
-  rightChar: string,
+  rightChar: string
 ): string {
   const re = typeof pattern === "string" ? new RegExp(pattern) : pattern;
   const match = content.match(re);
