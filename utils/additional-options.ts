@@ -68,7 +68,7 @@ function parseColor(raw: string): { hex: string, rgb: string } {
   }
 
   if (raw.includes(",")) {
-    const parts = raw.split(",").map(p => p.trim());
+    const parts = raw.split(",");
     r = stringToInt(parts[0], 10);
     g = stringToInt(parts[1], 10);
     b = stringToInt(parts[2], 10);
@@ -111,22 +111,100 @@ function getColorCSS(scheme: Record<string, any>): string {
 export async function registerAdditionalPatches(patchManager: PatchManager, appsFolderPath: string, config: any) {
   const xpuiPath = path.join(appsFolderPath, "xpui");
   const spicetifyDir = path.join(process.env.APPDATA!, "Spicetify");
+  const extDest = path.join(xpuiPath, "extensions");
+  await fs.mkdir(extDest, { recursive: true });
 
+  // 1. Process Custom Apps (Exact replica of Official Spicetify Logic)
   const customApps = config.AdditionalOptions.custom_apps ? config.AdditionalOptions.custom_apps.split("|") : [];
   const manifests: any[] = [];
+  
   for (const app of customApps) {
     if (!app) continue;
+    const appName = `spicetify-routes-${app}`;
+    const customAppPath = path.join(spicetifyDir, "CustomApps", app);
+    
     try {
-      const manifestPath = path.join(spicetifyDir, "CustomApps", app, "manifest.json");
-      const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+      // index.js is mandatory
+      let jsFileContent = await fs.readFile(path.join(customAppPath, "index.js"), "utf8");
+      
+      const manifestFile = path.join(customAppPath, "manifest.json");
+      let manifestRaw = "{}";
+      try { manifestRaw = await fs.readFile(manifestFile, "utf8"); } catch {}
+      const manifest = JSON.parse(manifestRaw);
+      
       manifests.push({ 
         subfiles: manifest.subfiles || [],
-        subfiles_extension: manifest.subfiles_extension || manifest.extension_files || [],
+        subfiles_extension: manifest.subfiles_extension || [],
+        assets: manifest.assets || [],
         name: app 
       });
-    } catch {}
+
+      // Write appName.json to xpui
+      await fs.writeFile(path.join(xpuiPath, `${appName}.json`), manifestRaw);
+
+      // Concatenate subfiles (manifest key is "subfiles")
+      if (manifest.subfiles) {
+        for (const subfile of manifest.subfiles) {
+          try {
+            const subContent = await fs.readFile(path.join(customAppPath, subfile), "utf8");
+            jsFileContent += "\n" + subContent;
+          } catch {}
+        }
+      }
+
+      // Handle extensions (manifest key is "subfiles_extension")
+      if (manifest.subfiles_extension) {
+        for (const extFile of manifest.subfiles_extension) {
+          try {
+            const extSrc = path.join(customAppPath, extFile);
+            const extDestPath = path.join(extDest, app, extFile);
+            await fs.mkdir(path.dirname(extDestPath), { recursive: true });
+            await fs.copyFile(extSrc, extDestPath);
+          } catch {}
+        }
+      }
+
+      // Handle assets using Bun.Glob
+      if (manifest.assets) {
+        for (const assetExpr of manifest.assets) {
+          const glob = new Bun.Glob(assetExpr);
+          for await (const assetPathRel of glob.scan({ cwd: customAppPath, onlyFiles: false })) {
+            const assetPath = path.join(customAppPath, assetPathRel);
+            const destPath = path.join(xpuiPath, "assets", app, assetPathRel);
+            await fs.mkdir(path.dirname(destPath), { recursive: true });
+            const s = await fs.stat(assetPath);
+            if (s.isDirectory()) {
+              await fs.cp(assetPath, destPath, { recursive: true });
+            } else {
+              await fs.copyFile(assetPath, destPath);
+            }
+          }
+        }
+      }
+
+      // Generate webpack wrapper JS
+      const jsTemplate = `(("undefined"!=typeof self?self:global).webpackChunkclient_web=("undefined"!=typeof self?self:global).webpackChunkclient_web||[])
+.push([["${appName}"],{"${appName}":(e,t,n)=>{
+"use strict";n.r(t),n.d(t,{default:()=>render});
+${jsFileContent}
+}}]);`;
+
+      await fs.writeFile(path.join(xpuiPath, `${appName}.js`), jsTemplate);
+
+      // style.css
+      try {
+        const cssContent = await fs.readFile(path.join(customAppPath, "style.css"), "utf8");
+        await fs.writeFile(path.join(xpuiPath, `${appName}.css`), cssContent);
+      } catch {
+        await fs.writeFile(path.join(xpuiPath, `${appName}.css`), "");
+      }
+
+    } catch (e) {
+      console.warn(`Failed to process custom app ${app}:`, e.message);
+    }
   }
 
+  // 2. Register file patches
   patchManager.addPatch(path.join(xpuiPath, "index.html"), (c) => htmlMod(c, config, manifests));
   
   const mainJsModifiers = (c: string) => {
@@ -149,6 +227,7 @@ export async function registerAdditionalPatches(patchManager: PatchManager, apps
   patchManager.addPatch(path.join(xpuiPath, "home-v2.js"), (c) => insertHomeConfig(c));
   patchManager.addPatch(path.join(xpuiPath, "xpui-desktop-modals.js"), (c) => insertVersionInfo(c));
 
+  // 3. Handle Helper Patches
   const helperPath = path.join(xpuiPath, "helper");
   await fs.mkdir(helperPath, { recursive: true });
   const localJsPatches = path.join(process.cwd(), "jsPatches");
@@ -156,6 +235,7 @@ export async function registerAdditionalPatches(patchManager: PatchManager, apps
     try { await fs.copyFile(path.join(localJsPatches, patch), path.join(helperPath, patch)); } catch {}
   }
 
+  // 4. Handle Themes
   const themeName = config.Setting.current_theme;
   if (themeName) {
     const themeDir = path.join(spicetifyDir, "Themes", themeName);
@@ -184,20 +264,17 @@ export async function registerAdditionalPatches(patchManager: PatchManager, apps
 
       try {
         const themeJsPath = path.join(themeDir, "theme.js");
-        const extDest = path.join(xpuiPath, "extensions");
-        await fs.mkdir(extDest, { recursive: true });
         await fs.copyFile(themeJsPath, path.join(extDest, "theme.js"));
       } catch {
-        await fs.writeFile(path.join(xpuiPath, "extensions", "theme.js"), "");
+        await fs.writeFile(path.join(extDest, "theme.js"), "");
       }
     } catch (e) {
       console.error(`Error applying theme ${themeName}:`, e);
     }
   }
 
+  // 5. Handle Standalone Extensions
   const extensions = config.AdditionalOptions.extensions ? config.AdditionalOptions.extensions.split("|") : [];
-  const extDest = path.join(xpuiPath, "extensions");
-  await fs.mkdir(extDest, { recursive: true });
   for (const ext of extensions) {
     if (!ext) continue;
     try {
@@ -206,17 +283,6 @@ export async function registerAdditionalPatches(patchManager: PatchManager, apps
       await fs.copyFile(extSrc, path.join(extDest, extName));
     } catch (e) {
       console.warn(`Extension not found: ${ext}`);
-    }
-  }
-
-  for (const app of customApps) {
-    if (!app) continue;
-    try {
-      const appSrc = path.join(spicetifyDir, "CustomApps", app);
-      const appDest = path.join(extDest, app);
-      await fs.cp(appSrc, appDest, { recursive: true });
-    } catch (e) {
-      console.warn(`Custom app not found: ${app}`);
     }
   }
 }
