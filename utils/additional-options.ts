@@ -69,13 +69,13 @@ function parseColor(raw: string): { hex: string, rgb: string } {
 
   if (raw.includes(",")) {
     const parts = raw.split(",");
-    r = stringToInt(parts[0], 10);
-    g = stringToInt(parts[1], 10);
-    b = stringToInt(parts[2], 10);
+    r = stringToInt(parts[0]!, 10);
+    g = stringToInt(parts[1]!, 10);
+    b = stringToInt(parts[2]!, 10);
   } else {
     let hex = raw.replace(/[^a-fA-F0-9]/g, "");
     if (hex.length === 3) {
-      hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+      hex = hex[0]! + hex[0]! + hex[1]! + hex[1]! + hex[2]! + hex[2]!;
     }
     hex = (hex + "ffffff").slice(0, 6);
     r = stringToInt(hex.slice(0, 2), 16);
@@ -114,7 +114,6 @@ export async function registerAdditionalPatches(patchManager: PatchManager, apps
   const extDest = path.join(xpuiPath, "extensions");
   await fs.mkdir(extDest, { recursive: true });
 
-  // 1. Process Custom Apps (Exact replica of Official Spicetify Logic)
   const customApps = config.AdditionalOptions.custom_apps ? config.AdditionalOptions.custom_apps.split("|") : [];
   const manifests: any[] = [];
   
@@ -124,7 +123,6 @@ export async function registerAdditionalPatches(patchManager: PatchManager, apps
     const customAppPath = path.join(spicetifyDir, "CustomApps", app);
     
     try {
-      // index.js is mandatory
       let jsFileContent = await fs.readFile(path.join(customAppPath, "index.js"), "utf8");
       
       const manifestFile = path.join(customAppPath, "manifest.json");
@@ -139,10 +137,8 @@ export async function registerAdditionalPatches(patchManager: PatchManager, apps
         name: app 
       });
 
-      // Write appName.json to xpui
       await fs.writeFile(path.join(xpuiPath, `${appName}.json`), manifestRaw);
 
-      // Concatenate subfiles (manifest key is "subfiles")
       if (manifest.subfiles) {
         for (const subfile of manifest.subfiles) {
           try {
@@ -152,7 +148,6 @@ export async function registerAdditionalPatches(patchManager: PatchManager, apps
         }
       }
 
-      // Handle extensions (manifest key is "subfiles_extension")
       if (manifest.subfiles_extension) {
         for (const extFile of manifest.subfiles_extension) {
           try {
@@ -164,7 +159,6 @@ export async function registerAdditionalPatches(patchManager: PatchManager, apps
         }
       }
 
-      // Handle assets using Bun.Glob
       if (manifest.assets) {
         for (const assetExpr of manifest.assets) {
           const glob = new Bun.Glob(assetExpr);
@@ -182,7 +176,6 @@ export async function registerAdditionalPatches(patchManager: PatchManager, apps
         }
       }
 
-      // Generate webpack wrapper JS
       const jsTemplate = `(("undefined"!=typeof self?self:global).webpackChunkclient_web=("undefined"!=typeof self?self:global).webpackChunkclient_web||[])
 .push([["${appName}"],{"${appName}":(e,t,n)=>{
 "use strict";n.r(t),n.d(t,{default:()=>render});
@@ -191,7 +184,6 @@ ${jsFileContent}
 
       await fs.writeFile(path.join(xpuiPath, `${appName}.js`), jsTemplate);
 
-      // style.css
       try {
         const cssContent = await fs.readFile(path.join(customAppPath, "style.css"), "utf8");
         await fs.writeFile(path.join(xpuiPath, `${appName}.css`), cssContent);
@@ -200,11 +192,10 @@ ${jsFileContent}
       }
 
     } catch (e) {
-      console.warn(`Failed to process custom app ${app}:`, e.message);
+      console.warn(`Failed to process custom app ${app}:`, e);
     }
   }
 
-  // 2. Register file patches
   patchManager.addPatch(path.join(xpuiPath, "index.html"), (c) => htmlMod(c, config, manifests));
   
   const mainJsModifiers = (c: string) => {
@@ -227,7 +218,6 @@ ${jsFileContent}
   patchManager.addPatch(path.join(xpuiPath, "home-v2.js"), (c) => insertHomeConfig(c));
   patchManager.addPatch(path.join(xpuiPath, "xpui-desktop-modals.js"), (c) => insertVersionInfo(c));
 
-  // 3. Handle Helper Patches
   const helperPath = path.join(xpuiPath, "helper");
   await fs.mkdir(helperPath, { recursive: true });
   const localJsPatches = path.join(process.cwd(), "jsPatches");
@@ -235,7 +225,6 @@ ${jsFileContent}
     try { await fs.copyFile(path.join(localJsPatches, patch), path.join(helperPath, patch)); } catch {}
   }
 
-  // 4. Handle Themes
   const themeName = config.Setting.current_theme;
   if (themeName) {
     const themeDir = path.join(spicetifyDir, "Themes", themeName);
