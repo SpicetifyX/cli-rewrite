@@ -49,7 +49,6 @@ export function htmlMod(content: string, config: any, customAppManifests: any[])
     }
   }
 
-  // Official Spicetify injection logic for xpui-modules.js
   content = replace(
     content,
     /<script defer="defer" src="\/xpui-snapshot\.js"><\/script>/,
@@ -116,7 +115,7 @@ export function insertCustomApp(content: string, config: any): string {
   let appReactMap = "";
   let appEleMap = "";
   let cssEnableMap = "";
-  const appNames = customApps.map(app => `"${app}"`).join(",");
+  let appNameArray = "";
 
   let wildcard = "";
   if (!eleSymbs[2]) {
@@ -126,31 +125,49 @@ export function insertCustomApp(content: string, config: any): string {
   }
 
   customApps.forEach((app, index) => {
+    if (!app) return;
     const appName = `spicetify-routes-${app}`;
     appMap += `"${appName}":"${appName}",`;
+    appNameArray += `"${app}",`;
+
     appReactMap += `,spicetifyApp${index}=${reactSymbs![0]}.lazy((()=>${reactSymbs![1]}.${reactSymbs![2]}("${appName}").then(${reactSymbs![1]}.bind(${reactSymbs![1]},"${appName}"))))`;
     appEleMap += `${eleSymbs![0]}(${eleSymbs![1]},{path:"/${app}/${wildcard}",pathV6:"/${app}/*",${eleSymbs![2]}:${eleSymbs![0]}(spicetifyApp${index},{})}),`;
     cssEnableMap += `,"${appName}":1`;
   });
 
+  // Remove trailing comma from appNameArray
+  if (appNameArray.endsWith(",")) appNameArray = appNameArray.slice(0, -1);
+
   content = replace(content, /\{(\d+:"xpui)/, (match, p1) => `{${appMap}${p1}`);
 
-  const reactMatch = seekToCloseParen(content, matchedReactPattern!, "(", ")");
-  if (reactMatch) {
-    content = content.replace(reactMatch, `${reactMatch}${appReactMap}`);
+  const reactMatchResult = seekToCloseParen(content, matchedReactPattern!, "(", ")");
+  if (reactMatchResult) {
+    content = content.replace(reactMatchResult, `${reactMatchResult}${appReactMap}`);
   }
 
   content = replaceOnce(content, matchedElementPattern!, (match) => `${appEleMap}${match}`);
-  content = insertNavLink(content, `[${appNames}]`);
+  content = insertNavLink(content, appNameArray);
   content = replaceOnce(content, /\d+:1,\d+:1,\d+:1/, (match) => `${match}${cssEnableMap}`);
 
   return content;
 }
 
+function replaceOnceWithPriority(str: string, patterns: (string|RegExp)[], repl: (index: number, ...submatches: string[]) => string): string {
+  for (let i = 0; i < patterns.length; i++) {
+    const re = typeof patterns[i] === "string" ? new RegExp(patterns[i]) : patterns[i] as RegExp;
+    const match = str.match(re);
+    if (match) {
+      const res = repl(i, ...match);
+      return str.replace(re, res);
+    }
+  }
+  return str;
+}
+
 function insertNavLink(str: string, appNameArray: string): string {
   const libraryXItemMatch = seekToCloseParen(str, /\("li",\{[^\{]*\{[^\{]*\{to:"\/search/, "(", ")");
   if (libraryXItemMatch) {
-    str = str.replace(libraryXItemMatch, `${libraryXItemMatch},Spicetify._renderNavLinks(${appNameArray}, false)`);
+    str = str.replace(libraryXItemMatch, `${libraryXItemMatch},Spicetify._renderNavLinks([${appNameArray}], false)`);
   }
 
   const patterns = [
@@ -159,20 +176,16 @@ function insertNavLink(str: string, appNameArray: string): string {
     /("global-nav-bar".*?)(\(0,\s*[a-zA-Z_\$][\w\$]*\.jsx\))(\(\s*\w+,\s*\{\s*className:\w*\s*\}\s*\))/,
   ];
 
-  for (let i = 0; i < patterns.length; i++) {
-    const re = patterns[i];
-    const match = str.match(re);
-    if (match) {
-      if (i === 0 || i === 1) {
-        str = str.replace(re, `${match[1]},Spicetify._renderNavLinks(${appNameArray}, true)]`);
-      } else if (i === 2) {
-        str = str.replace(re, `${match[1]}[${match[2]}${match[3]},Spicetify._renderNavLinks(${appNameArray}, true)].flat()`);
-      }
-      break;
+  return replaceOnceWithPriority(str, patterns, (index, ...submatches) => {
+    switch(index) {
+      case 0:
+      case 1:
+        return `${submatches[1]},Spicetify._renderNavLinks([${appNameArray}], true)]`;
+      case 2:
+        return `${submatches[1]}[${submatches[2]}${submatches[3]},Spicetify._renderNavLinks([${appNameArray}], true)].flat()`;
     }
-  }
-
-  return str;
+    return submatches[0];
+  });
 }
 
 export function insertHomeConfig(content: string): string {
